@@ -1,14 +1,12 @@
 # =========================================================
-# app.py — Dashboard Executivo (SENAI) — Versão Ajustada (FINAL)
-# ALTERAÇÕES AGORA:
-# 1) KPI: "TOTAL DE COLABORADORES" (nunique de NOME) no lugar de TOTAL REGISTROS
-# 2) Gráfico por ano: mostrar valor (legenda) em cima de cada barra
-# Mantém:
-# - Termômetro (barra) institucional
-# - Sidebar branca / texto azul SENAI
-# - Ranking Top 5 por % atingida (VIGENTE/(VIGENTE+VENCIDO))
-# - Unidade Ouro todo período (maior % atingida)
-# - Cabeçalho Excel na LINHA 4 (header=3)
+# app.py — Dashboard Executivo (SENAI) — CONSOLIDADO (FINAL)
+# AJUSTE PRINCIPAL:
+# - KPIs + Termômetro + Diagnóstico: SEM filtros (base institucional) -> bate com o diagnóstico
+# - Filtros laterais aplicados SOMENTE em:
+#   (1) Tabela NR (VIGENTE x VENCIDO por Treinamento/NR)
+#   (2) Gráfico por Ano
+#   (3) Base Detalhada + Exportação
+# - Unidade Ouro + Ranking Top 5: SEM filtros (travados)
 # =========================================================
 
 import os
@@ -44,7 +42,7 @@ CINZA_FUNDO = "#F5F6F8"
 CINZA_BORDA = "#E5E7EB"
 TEXTO_CINZA = "#6B7280"
 
-# Status
+# Status (conforme você pediu)
 COR_VIGENTE = SENAI_AZUL
 COR_VENCIDO = SENAI_LARANJA
 
@@ -70,6 +68,7 @@ st.markdown(
 [data-testid="stSidebar"] * {{
     color: {SENAI_AZUL} !important;
 }}
+
 [data-testid="stSidebar"] div[data-baseweb="select"] > div {{
     background: #ffffff !important;
     border-radius: 12px !important;
@@ -77,7 +76,7 @@ st.markdown(
 }}
 [data-testid="stSidebar"] div[data-baseweb="select"] span {{
     color: {SENAI_AZUL} !important;
-    font-weight: 1000 !important;
+    font-weight: 900 !important;
 }}
 [data-testid="stSidebar"] div[data-baseweb="select"] input {{
     color: {SENAI_AZUL} !important;
@@ -97,7 +96,7 @@ ul[role="listbox"] * {{
     padding: 6px 10px;
 }}
 [data-testid="stSidebar"] summary {{
-    font-weight: 1000 !important;
+    font-weight: 900 !important;
 }}
 
 .stButton>button {{
@@ -105,7 +104,7 @@ ul[role="listbox"] * {{
     color: #fff !important;
     border: none;
     border-radius: 12px;
-    font-weight: 1000;
+    font-weight: 900;
     padding: 0.55rem 0.85rem;
 }}
 .stButton>button:hover {{
@@ -113,7 +112,7 @@ ul[role="listbox"] * {{
 }}
 .stDownloadButton>button {{
     border-radius: 12px;
-    font-weight: 1000;
+    font-weight: 900;
 }}
 
 .header-wrap {{
@@ -125,7 +124,7 @@ ul[role="listbox"] * {{
 }}
 .h-title {{
     font-size: 26px;
-    font-weight: 1000;
+    font-weight: 900;
     margin: 0;
     color: {SENAI_AZUL};
 }}
@@ -141,7 +140,7 @@ ul[role="listbox"] * {{
     background: rgba(243,112,33,.12);
     border: 1px solid rgba(243,112,33,.35);
     color: {SENAI_LARANJA};
-    font-weight: 1000;
+    font-weight: 900;
     font-size: 12px;
 }}
 
@@ -158,6 +157,7 @@ ul[role="listbox"] * {{
     box-shadow: 0 6px 18px rgba(0,0,0,.05);
     position: relative;
     overflow: hidden;
+    min-height: 140px;
 }}
 .kpi::before {{
     content: "";
@@ -171,12 +171,12 @@ ul[role="listbox"] * {{
     font-size: 12px;
     text-transform: uppercase;
     color: {TEXTO_CINZA};
-    font-weight: 1000;
+    font-weight: 900;
 }}
 .kpi .v {{
     margin-top: 6px;
     font-size: 30px;
-    font-weight: 1000;
+    font-weight: 900;
     color: #111827;
 }}
 .kpi .hint {{
@@ -203,7 +203,7 @@ ul[role="listbox"] * {{
 .section-title h3 {{
     margin: 0;
     font-size: 18px;
-    font-weight: 1000;
+    font-weight: 900;
     color: {SENAI_AZUL};
 }}
 .pill {{
@@ -214,7 +214,7 @@ ul[role="listbox"] * {{
     border-radius: 999px;
     border: 1px solid {CINZA_BORDA};
     background: #f9fafb;
-    font-weight: 1000;
+    font-weight: 900;
     font-size: 12px;
     color: #111827;
 }}
@@ -255,7 +255,7 @@ ul[role="listbox"] * {{
     background:#f9fafb;
     border-radius:999px;
     padding:6px 10px;
-    font-weight:1000;
+    font-weight:900;
 }}
 </style>
 """,
@@ -389,7 +389,7 @@ def getcol(*cands):
 
 COL_UNIDADE = getcol("unidade")
 COL_NOME = getcol("nome")
-COL_MATRICULA = getcol("matricula", "matrícula")  # opcional (melhor para deduplicar)
+COL_MATRICULA = getcol("matricula", "matrícula")
 COL_GES = getcol("ges")
 COL_SITUACAO = getcol("situacao", "situação")
 COL_NORMA = getcol("norma regulamentadora", "norma", "nr")
@@ -406,7 +406,11 @@ if not COL_ANO and COL_DATA:
     df["ANO_DERIVADO"] = df[COL_DATA].dt.year
     COL_ANO = "ANO_DERIVADO"
 
-df_exec = df.copy()  # institucional (sem filtros)
+# Base institucional (SEM filtros)
+df_exec = df.copy()
+
+# Chave colaborador
+COL_CHAVE_COLAB = COL_MATRICULA if COL_MATRICULA else COL_NOME
 
 
 # =========================================================
@@ -416,7 +420,10 @@ if os.path.exists(LOGO_PATH):
     st.sidebar.image(LOGO_PATH, use_container_width=True)
 
 st.sidebar.markdown("## 🎛️ Filtros (Detalhamento)")
-st.sidebar.caption("Indicadores do topo são institucionais (sem filtros). Os filtros afetam apenas a base detalhada.")
+st.sidebar.caption(
+    "Os indicadores do topo, termômetro e diagnóstico são institucionais (SEM filtros). "
+    "Os filtros afetam apenas: tabela por NR, gráfico por ano e base detalhada."
+)
 st.sidebar.divider()
 
 df_f = df.copy()
@@ -437,7 +444,7 @@ with st.sidebar.expander("📘 Norma / NR", expanded=True):
 
 with st.sidebar.expander("✅ Situação", expanded=True):
     if COL_SITUACAO:
-        situacoes = sorted(df[COL_SITUACAO].dropna().astype(str).unique().tolist())
+        situacoes = sorted(df_f[COL_SITUACAO].dropna().astype(str).unique().tolist())
         sit_sel = multiselect_com_todos(st, "Selecione a situação", situacoes, default_all=True, key="f_situacao")
         if sit_sel:
             df_f = df_f[df_f[COL_SITUACAO].astype(str).isin(sit_sel)]
@@ -470,7 +477,8 @@ if st.sidebar.button("🔄 Atualizar dados", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
 
-df_det = df_f.copy()  # detalhamento (com filtros)
+# Base filtrada (somente para as 3 seções solicitadas)
+df_det = df_f.copy()
 
 
 # =========================================================
@@ -485,7 +493,7 @@ with h2:
         f"""
 <div class="header-wrap">
   <p class="h-title">Dashboard Executivo - Treinamentos SENAI</p>
-  <p class="h-sub">Indicadores institucionais • Termômetro • Unidade Ouro • Ranking • Análises por NR</p>
+  <p class="h-sub">Indicadores institucionais • Termômetro • Unidade Ouro • Ranking • Análises</p>
   <span class="badge">Meta institucional: 100% VIGENTE</span>
 </div>
 """,
@@ -496,9 +504,9 @@ st.write("")
 
 
 # =========================================================
-# DIAGNÓSTICO (ANTES DOS FILTROS) — ÚNICO
+# DIAGNÓSTICO (ANTES DOS FILTROS) — BASE INSTITUCIONAL
 # =========================================================
-with st.expander("🔎 Diagnóstico rápido da SITUAÇÃO (antes dos filtros)", expanded=False):
+with st.expander("🔎 Diagnóstico rápido da SITUAÇÃO (antes dos filtros)", expanded=True):
     if COL_SITUACAO:
         diag = df_exec[COL_SITUACAO].value_counts(dropna=False).reset_index()
         diag.columns = ["SITUAÇÃO", "count"]
@@ -508,13 +516,9 @@ with st.expander("🔎 Diagnóstico rápido da SITUAÇÃO (antes dos filtros)", 
 
 
 # =========================================================
-# KPIs (INSTITUCIONAIS)
-# 1) TOTAL DE COLABORADORES = nomes únicos (ou matrícula se existir)
+# KPIs (INSTITUCIONAIS) — SEM FILTROS
 # =========================================================
 total_exec_registros = len(df_exec)
-
-# >>> CHAVE DE "COLABORADOR" (prioriza matrícula se tiver; senão usa nome)
-COL_CHAVE_COLAB = COL_MATRICULA if COL_MATRICULA else COL_NOME
 
 total_colaboradores_exec = (
     df_exec[COL_CHAVE_COLAB].dropna().astype(str).nunique()
@@ -562,7 +566,7 @@ st.write("")
 
 
 # =========================================================
-# TERMÔMETRO (barra) — INSTITUCIONAL
+# TERMÔMETRO — INSTITUCIONAL (SEM FILTROS)
 # =========================================================
 st.markdown(
     f"""
@@ -594,7 +598,7 @@ st.write("")
 
 
 # =========================================================
-# UNIDADE OURO — TODO PERÍODO
+# UNIDADE OURO — TODO PERÍODO (SEM FILTROS)
 # =========================================================
 st.markdown(
     """
@@ -652,7 +656,7 @@ st.write("")
 
 
 # =========================================================
-# RANKING TOP 5 — POR “% ATINGIDA” (TODO PERÍODO)
+# RANKING TOP 5 — POR % ATINGIDA (SEM FILTROS)
 # =========================================================
 st.markdown(
     """
@@ -702,22 +706,22 @@ st.write("")
 
 
 # =========================================================
-# VIGENTE/VENCIDO POR NR (INSTITUCIONAL)
+# VIGENTE/VENCIDO POR NR — COM FILTROS (df_det)
 # =========================================================
 st.markdown(
     """
 <div class="section">
   <div class="section-title">
     <h3>📘 VIGENTE x VENCIDO por Treinamento/NR</h3>
-    <div><span class="pill">Base institucional</span></div>
+    <div><span class="pill">Com filtros do menu lateral</span></div>
   </div>
 </div>
 """,
     unsafe_allow_html=True,
 )
 
-if COL_NORMA and COL_SITUACAO:
-    nr = df_exec.groupby(COL_NORMA).agg(
+if COL_NORMA and COL_SITUACAO and not df_det.empty:
+    nr = df_det.groupby(COL_NORMA).agg(
         VIGENTE=(COL_SITUACAO, lambda s: (s == "VIGENTE").sum()),
         VENCIDO=(COL_SITUACAO, lambda s: (s == "VENCIDO").sum()),
     ).reset_index()
@@ -727,6 +731,7 @@ if COL_NORMA and COL_SITUACAO:
 
     nr["% VIGENTE"] = (nr["VIGENTE"] / nr["TOTAL"]).fillna(0) * 100
     nr["% VENCIDO"] = (nr["VENCIDO"] / nr["TOTAL"]).fillna(0) * 100
+
     nr = nr.sort_values(["% VENCIDO", "VENCIDO"], ascending=[False, False]).rename(columns={COL_NORMA: "NORMA"})
 
     st.dataframe(
@@ -736,29 +741,29 @@ if COL_NORMA and COL_SITUACAO:
         height=360,
     )
 else:
-    st.info("Não foi possível montar a visão por NR (verifique colunas NORMA e SITUAÇÃO).")
+    st.info("Não foi possível montar a visão por NR com os filtros (verifique colunas NORMA e SITUAÇÃO).")
 
 st.write("")
 
 
 # =========================================================
-# REGISTROS POR ANO (INSTITUCIONAL)
-# 2) colocar valores acima das barras
+# REGISTROS POR ANO — COM FILTROS (df_det)
+# (com valores em cima das barras)
 # =========================================================
 st.markdown(
     """
 <div class="section">
   <div class="section-title">
     <h3>📅 Quantidade de Registros por Ano</h3>
-    <div><span class="pill">Base institucional</span></div>
+    <div><span class="pill">Com filtros do menu lateral</span></div>
   </div>
 </div>
 """,
     unsafe_allow_html=True,
 )
 
-if COL_ANO and df_exec[COL_ANO].notna().any():
-    anos_series = pd.to_numeric(df_exec[COL_ANO], errors="coerce").dropna().astype(int)
+if COL_ANO and not df_det.empty and df_det[COL_ANO].notna().any():
+    anos_series = pd.to_numeric(df_det[COL_ANO], errors="coerce").dropna().astype(int)
     if not anos_series.empty:
         cont_ano = anos_series.value_counts().sort_index()
 
@@ -770,7 +775,6 @@ if COL_ANO and df_exec[COL_ANO].notna().any():
         ax.set_xlabel("Ano")
         ax.set_ylabel("Quantidade de registros")
 
-        # >>> VALOR EM CIMA DE CADA BARRA
         for b in bars:
             h = b.get_height()
             ax.annotate(
@@ -787,15 +791,15 @@ if COL_ANO and df_exec[COL_ANO].notna().any():
         plt.tight_layout()
         st.pyplot(fig, clear_figure=True)
     else:
-        st.info("Não foi possível identificar anos válidos.")
+        st.info("Não foi possível identificar anos válidos com os filtros.")
 else:
-    st.info("Coluna ANO não encontrada (nem derivada pela DATA).")
+    st.info("Coluna ANO não encontrada (nem derivada pela DATA) ou não há dados após filtros.")
 
 st.write("")
 
 
 # =========================================================
-# BASE DETALHADA + EXPORTAÇÃO (COM FILTROS)
+# BASE DETALHADA + EXPORTAÇÃO — COM FILTROS (df_det)
 # =========================================================
 st.markdown(
     """
