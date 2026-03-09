@@ -1,26 +1,23 @@
 # =========================================================
-# app.py — Dashboard Executivo (SENAI) — CONSOLIDADO (FINAL)
-# AJUSTE PRINCIPAL:
-# - KPIs + Termômetro + Diagnóstico: SEM filtros (base institucional) -> bate com o diagnóstico
-# - Filtros laterais aplicados SOMENTE em:
-#   (1) Tabela NR (VIGENTE x VENCIDO por Treinamento/NR)
-#   (2) Gráfico por Ano
-#   (3) Base Detalhada + Exportação
-# - Unidade Ouro + Ranking Top 5: SEM filtros (travados)
+# app_corrigido.py — Dashboard Executivo (SENAI) — CONSOLIDADO
+# CORREÇÃO DEFINITIVA DOS "ZERADOS":
+# 1) Usa os nomes EXATOS das colunas da sua planilha (linha 4)
+# 2) Normaliza textos (UNIDADE / NR / SITUAÇÃO) com strip + upper
+# 3) Tabela por NR usa crosstab (não depende de igualdade “perfeita”)
+# 4) TOTAL por NR = quantidade de registros (size) -> nunca zera se há linhas
 # =========================================================
 
 import os
 import io
-import re
 import time
 import shutil
 import unicodedata
+import re
 from datetime import datetime
 
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
-
 
 # =========================================================
 # CONFIG
@@ -29,9 +26,7 @@ st.set_page_config(page_title="Dashboard Executivo - Treinamentos SENAI", layout
 
 ARQUIVO = "CONTROLE DE TREINAMENTOS SENAI - POWER BI.xlsx"
 ABA = 0
-
-# Cabeçalho "LINHA 4" no Excel -> header=3
-HEADER_LINHA = 3
+HEADER_LINHA = 3  # linha 4
 
 LOGO_PATH = "logo_senai.png"
 
@@ -42,13 +37,11 @@ CINZA_FUNDO = "#F5F6F8"
 CINZA_BORDA = "#E5E7EB"
 TEXTO_CINZA = "#6B7280"
 
-# Status (conforme você pediu)
 COR_VIGENTE = SENAI_AZUL
 COR_VENCIDO = SENAI_LARANJA
 
-
 # =========================================================
-# CSS (EXECUTIVO + SIDEBAR BRANCA)
+# CSS
 # =========================================================
 st.markdown(
     f"""
@@ -60,7 +53,6 @@ st.markdown(
     padding-top: 1.0rem;
     padding-bottom: 2.0rem;
 }}
-
 [data-testid="stSidebar"] {{
     background: #ffffff !important;
     border-right: 1px solid {CINZA_BORDA};
@@ -68,53 +60,6 @@ st.markdown(
 [data-testid="stSidebar"] * {{
     color: {SENAI_AZUL} !important;
 }}
-
-[data-testid="stSidebar"] div[data-baseweb="select"] > div {{
-    background: #ffffff !important;
-    border-radius: 12px !important;
-    border: 1px solid {CINZA_BORDA} !important;
-}}
-[data-testid="stSidebar"] div[data-baseweb="select"] span {{
-    color: {SENAI_AZUL} !important;
-    font-weight: 900 !important;
-}}
-[data-testid="stSidebar"] div[data-baseweb="select"] input {{
-    color: {SENAI_AZUL} !important;
-}}
-ul[role="listbox"] {{
-    background: #ffffff !important;
-}}
-ul[role="listbox"] * {{
-    color: {SENAI_AZUL} !important;
-    font-weight: 900 !important;
-}}
-
-[data-testid="stSidebar"] details {{
-    border-radius: 14px;
-    background: #ffffff;
-    border: 1px solid {CINZA_BORDA};
-    padding: 6px 10px;
-}}
-[data-testid="stSidebar"] summary {{
-    font-weight: 900 !important;
-}}
-
-.stButton>button {{
-    background: {SENAI_LARANJA};
-    color: #fff !important;
-    border: none;
-    border-radius: 12px;
-    font-weight: 900;
-    padding: 0.55rem 0.85rem;
-}}
-.stButton>button:hover {{
-    background: #d85f18;
-}}
-.stDownloadButton>button {{
-    border-radius: 12px;
-    font-weight: 900;
-}}
-
 .header-wrap {{
     background: #ffffff;
     border: 1px solid {CINZA_BORDA};
@@ -143,7 +88,6 @@ ul[role="listbox"] * {{
     font-weight: 900;
     font-size: 12px;
 }}
-
 .kpi-grid {{
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -185,7 +129,6 @@ ul[role="listbox"] * {{
     color: {TEXTO_CINZA};
     font-weight: 800;
 }}
-
 .section {{
     background: #ffffff;
     border: 1px solid {CINZA_BORDA};
@@ -218,7 +161,6 @@ ul[role="listbox"] * {{
     font-size: 12px;
     color: #111827;
 }}
-
 .thermo-wrap {{
     background: #ffffff;
     border: 1px solid {CINZA_BORDA};
@@ -262,14 +204,9 @@ ul[role="listbox"] * {{
     unsafe_allow_html=True,
 )
 
-
 # =========================================================
 # HELPERS
 # =========================================================
-def limpar_nome_coluna(c):
-    return str(c).replace("\n", " ").replace("\r", " ").strip()
-
-
 def normalize_text(s: str) -> str:
     s = "" if s is None else str(s)
     s = s.replace("\u00a0", " ").replace("\u200b", "")
@@ -279,30 +216,14 @@ def normalize_text(s: str) -> str:
     s = re.sub(r"\s+", " ", s)
     return s.upper().strip()
 
-
-def status_norm(x) -> str:
-    s = normalize_text(x)
-    if "VENC" in s:
-        return "VENCIDO"
-    if "VIG" in s:
-        return "VIGENTE"
-    return s
-
-
-def norm_col(s):
-    return normalize_text(s).lower()
-
-
-def fmt_int(n: int) -> str:
+def fmt_int(n) -> str:
     try:
         return f"{int(n):,}".replace(",", ".")
     except Exception:
         return str(n)
 
-
 def fmt_pct(x: float) -> str:
     return f"{x*100:.2f}%".replace(".", ",")
-
 
 def gerar_excel_bytes(df_out: pd.DataFrame) -> bytes:
     output = io.BytesIO()
@@ -310,14 +231,12 @@ def gerar_excel_bytes(df_out: pd.DataFrame) -> bytes:
         df_out.to_excel(writer, index=False, sheet_name="Relatorio")
     return output.getvalue()
 
-
 def selectbox_com_todos(container, label, options, key=None):
     options = [o for o in options if str(o).strip() != ""]
     options = sorted(options, key=lambda x: str(x))
     if not options:
         return "TODOS"
     return container.selectbox(label, ["TODOS"] + options, index=0, key=key)
-
 
 def multiselect_com_todos(container, label, options, default_all=True, key=None):
     options = [o for o in options if str(o).strip() != ""]
@@ -332,10 +251,10 @@ def multiselect_com_todos(container, label, options, default_all=True, key=None)
         return options
     return sel
 
-
 @st.cache_data(show_spinner=False)
 def carregar_dados():
     if not os.path.exists(ARQUIVO):
+        st.error(f"❌ Arquivo não encontrado: {ARQUIVO}")
         return pd.DataFrame()
 
     tmp_path = os.path.join(os.getcwd(), "~base_temp.xlsx")
@@ -346,7 +265,8 @@ def carregar_dados():
             shutil.copy2(ARQUIVO, tmp_path)
             df_local = pd.read_excel(tmp_path, sheet_name=ABA, header=HEADER_LINHA, engine="openpyxl")
             df_local = df_local.dropna(axis=1, how="all").dropna(axis=0, how="all")
-            df_local.columns = [limpar_nome_coluna(c) for c in df_local.columns]
+            # padroniza nomes das colunas
+            df_local.columns = [str(c).replace("\n", " ").replace("\r", " ").strip() for c in df_local.columns]
             return df_local
         except PermissionError as e:
             last_err = e
@@ -365,7 +285,6 @@ def carregar_dados():
     st.caption(f"Detalhe do erro: {repr(last_err)}")
     return pd.DataFrame()
 
-
 # =========================================================
 # CARREGAR BASE
 # =========================================================
@@ -373,51 +292,68 @@ df = carregar_dados()
 if df.empty:
     st.stop()
 
-cols_map = {norm_col(c): c for c in df.columns}
+# =========================================================
+# COLUNAS (EXATAS DO SEU EXCEL)
+# =========================================================
+COL_UNIDADE  = "UNIDADE"
+COL_NOME     = "NOME"
+COL_MATRICULA= "MATRÍCULA"
+COL_GES      = "GES"
+COL_NORMA    = "NORMA REGULAMENTADORA"
+COL_TREIN    = "TREINAMENTOS DO GES"
+COL_ANO      = "ANO"
+COL_DATA     = "DATA ATUAL"
+COL_SITUACAO = "SITUAÇÃO"
 
+# garante que existem
+for c in [COL_UNIDADE, COL_NOME, COL_MATRICULA, COL_GES, COL_NORMA, COL_ANO, COL_SITUACAO]:
+    if c not in df.columns:
+        st.error(f"❌ Coluna obrigatória não encontrada: {c}")
+        st.write("Colunas detectadas:", list(df.columns))
+        st.stop()
 
-def getcol(*cands):
-    for c in cands:
-        k = norm_col(c)
-        if k in cols_map:
-            return cols_map[k]
-        for kk, orig in cols_map.items():
-            if k in kk:
-                return orig
-    return None
+# =========================================================
+# NORMALIZAÇÃO (aqui fica “à prova de erro”)
+# =========================================================
+df[COL_UNIDADE] = df[COL_UNIDADE].astype(str).str.strip()
+df[COL_NORMA]   = df[COL_NORMA].astype(str).str.strip()
+df[COL_TREIN]   = df[COL_TREIN].astype(str).str.strip() if COL_TREIN in df.columns else ""
 
+# ✅ Chave única para a tabela "Treinamento/NR":
+# - Se "NORMA REGULAMENTADORA" estiver vazia, usa "TREINAMENTOS DO GES"
+# - Isso evita VENCIDOS "sumirem" quando a coluna de NR está em branco nas linhas vencidas
+def _vazio(x: str) -> bool:
+    x = "" if x is None else str(x)
+    x = x.strip().upper()
+    return x in ("", "NAN", "NONE", "NULL", "-")
 
-COL_UNIDADE = getcol("unidade")
-COL_NOME = getcol("nome")
-COL_MATRICULA = getcol("matricula", "matrícula")
-COL_GES = getcol("ges")
-COL_SITUACAO = getcol("situacao", "situação")
-COL_NORMA = getcol("norma regulamentadora", "norma", "nr")
-COL_ANO = getcol("ano")
-COL_DATA = getcol("data")
+CHAVE_TREIN_NR = "TREIN_NR"
+df[CHAVE_TREIN_NR] = df.apply(
+    lambda r: (r.get(COL_NORMA, "") if not _vazio(r.get(COL_NORMA, "")) else r.get(COL_TREIN, "SEM TREINAMENTO")),
+    axis=1,
+)
+df[CHAVE_TREIN_NR] = df[CHAVE_TREIN_NR].astype(str).str.strip()
+df[COL_SITUACAO]= df[COL_SITUACAO].astype(str).apply(normalize_text)  # VIGENTE/VENCIDO
 
-if COL_SITUACAO:
-    df[COL_SITUACAO] = df[COL_SITUACAO].apply(status_norm)
+# se vier qualquer variação (ex.: "VENCIDO " ou "VENC."), garante:
+df.loc[df[COL_SITUACAO].str.contains("VENC", na=False), COL_SITUACAO] = "VENCIDO"
+df.loc[~df[COL_SITUACAO].isin(["VIGENTE", "VENCIDO"]), COL_SITUACAO] = "VIGENTE"  # fallback seguro
 
-if COL_DATA:
+# Data/ano
+if COL_DATA in df.columns:
     df[COL_DATA] = pd.to_datetime(df[COL_DATA], errors="coerce", dayfirst=True)
-
-if not COL_ANO and COL_DATA:
-    df["ANO_DERIVADO"] = df[COL_DATA].dt.year
-    COL_ANO = "ANO_DERIVADO"
 
 # Base institucional (SEM filtros)
 df_exec = df.copy()
 
 # Chave colaborador
-COL_CHAVE_COLAB = COL_MATRICULA if COL_MATRICULA else COL_NOME
-
+COL_CHAVE_COLAB = COL_MATRICULA if COL_MATRICULA in df.columns else COL_NOME
 
 # =========================================================
-# SIDEBAR (BRANCA) — FILTROS (DETALHAMENTO)
+# SIDEBAR — FILTROS (DETALHAMENTO)
 # =========================================================
 if os.path.exists(LOGO_PATH):
-    st.sidebar.image(LOGO_PATH, use_container_width=True)
+    st.sidebar.image(LOGO_PATH, width="stretch")
 
 st.sidebar.markdown("## 🎛️ Filtros (Detalhamento)")
 st.sidebar.caption(
@@ -425,61 +361,80 @@ st.sidebar.caption(
     "Os filtros afetam apenas: tabela por NR, gráfico por ano e base detalhada."
 )
 st.sidebar.divider()
+# ✅ Botão para resetar filtros (evita estado antigo prender somente VIGENTE)
+if st.sidebar.button("🧹 Limpar filtros (reset)", width="stretch"):
+    for k in ["f_unidade", "f_normas", "f_situacao_v2", "f_ges", "f_ano", "f_busca"]:
+        if k in st.session_state:
+            del st.session_state[k]
+    st.rerun()
 
-df_f = df.copy()
+df_base = df.copy()  # filtros sem SITUAÇÃO (para tabela por NR)
+df_det = df.copy()   # filtros com SITUAÇÃO (para base detalhada/export)
 
 with st.sidebar.expander("🏢 Unidade", expanded=True):
-    if COL_UNIDADE:
-        unidades = sorted(df_f[COL_UNIDADE].dropna().astype(str).unique().tolist())
-        unidade_sel = selectbox_com_todos(st, "Selecione a unidade", unidades, key="f_unidade")
-        if unidade_sel != "TODOS":
-            df_f = df_f[df_f[COL_UNIDADE].astype(str) == unidade_sel]
+    unidades = sorted(df_det[COL_UNIDADE].dropna().astype(str).unique().tolist())
+    unidade_sel = selectbox_com_todos(st, "Selecione a unidade", unidades, key="f_unidade")
+    if unidade_sel != "TODOS":
+        df_base = df_base[df_base[COL_UNIDADE].astype(str) == unidade_sel]
+        df_det  = df_det[df_det[COL_UNIDADE].astype(str) == unidade_sel]
 
 with st.sidebar.expander("📘 Norma / NR", expanded=True):
-    if COL_NORMA:
-        normas = sorted(df_f[COL_NORMA].dropna().astype(str).unique().tolist())
-        normas_sel = multiselect_com_todos(st, "Selecione as NRs", normas, default_all=True, key="f_normas")
-        if normas_sel:
-            df_f = df_f[df_f[COL_NORMA].astype(str).isin(normas_sel)]
+    normas = sorted(df_det[COL_NORMA].dropna().astype(str).unique().tolist())
+    normas_sel = multiselect_com_todos(st, "Selecione as NRs", normas, default_all=True, key="f_normas")
+    if normas_sel:
+        df_base = df_base[df_base[COL_NORMA].astype(str).isin(normas_sel)]
+        df_det  = df_det[df_det[COL_NORMA].astype(str).isin(normas_sel)]
 
 with st.sidebar.expander("✅ Situação", expanded=True):
-    if COL_SITUACAO:
-        situacoes = sorted(df_f[COL_SITUACAO].dropna().astype(str).unique().tolist())
-        sit_sel = multiselect_com_todos(st, "Selecione a situação", situacoes, default_all=True, key="f_situacao")
-        if sit_sel:
-            df_f = df_f[df_f[COL_SITUACAO].astype(str).isin(sit_sel)]
+    situacoes = sorted(df_det[COL_SITUACAO].dropna().astype(str).unique().tolist())
+    sit_sel = multiselect_com_todos(st, "Selecione a situação", situacoes, default_all=True, key="f_situacao_v2")
+    if sit_sel:
+        df_det = df_det[df_det[COL_SITUACAO].astype(str).isin(sit_sel)]
 
 with st.sidebar.expander("👥 GES", expanded=False):
-    if COL_GES:
-        ges_lista = sorted(df_f[COL_GES].dropna().astype(str).unique().tolist())
-        ges_sel = multiselect_com_todos(st, "Selecione o GES", ges_lista, default_all=True, key="f_ges")
-        if ges_sel:
-            df_f = df_f[df_f[COL_GES].astype(str).isin(ges_sel)]
+    ges_lista = sorted(df_det[COL_GES].dropna().astype(str).unique().tolist())
+    ges_sel = multiselect_com_todos(st, "Selecione o GES", ges_lista, default_all=True, key="f_ges")
+    if ges_sel:
+        df_base = df_base[df_base[COL_GES].astype(str).isin(ges_sel)]
+        df_det  = df_det[df_det[COL_GES].astype(str).isin(ges_sel)]
 
 with st.sidebar.expander("📅 Ano", expanded=False):
-    if COL_ANO and df_f[COL_ANO].notna().any():
-        anos = sorted(pd.to_numeric(df_f[COL_ANO], errors="coerce").dropna().astype(int).unique().tolist())
-        ano_sel = multiselect_com_todos(st, "Selecione o ano", anos, default_all=True, key="f_ano")
-        if ano_sel:
-            df_f = df_f[pd.to_numeric(df_f[COL_ANO], errors="coerce").isin(ano_sel)]
+    anos = sorted(pd.to_numeric(df_det[COL_ANO], errors="coerce").dropna().astype(int).unique().tolist())
+    ano_sel = multiselect_com_todos(st, "Selecione o ano", anos, default_all=True, key="f_ano")
+
+    # ✅ CORREÇÃO: a maioria dos VENCIDOS está com ANO vazio (NaN).
+    # Se filtrarmos apenas pelos anos selecionados, removemos os vencidos sem ano.
+    # Portanto, quando houver filtro de ano, mantemos também os registros sem ano.
+    if ano_sel:
+        ano_base = pd.to_numeric(df_base[COL_ANO], errors="coerce")
+        ano_det  = pd.to_numeric(df_det[COL_ANO], errors="coerce")
+        mask_base = ano_base.isna() | ano_base.isin(ano_sel)
+        mask_det  = ano_det.isna()  | ano_det.isin(ano_sel)
+        df_base = df_base[mask_base]
+        df_det  = df_det[mask_det]
+
 
 with st.sidebar.expander("🔎 Busca", expanded=False):
     busca = st.text_input("Buscar (NR, GES ou Situação)", value="", key="f_busca").strip().lower()
     if busca:
-        cols_busca = [c for c in [COL_NORMA, COL_GES, COL_SITUACAO] if c]
-        mask = False
-        for c in cols_busca:
-            mask = mask | df_f[c].astype(str).str.lower().str.contains(busca, na=False)
-        df_f = df_f[mask]
+        mask_base = (
+            df_base[COL_NORMA].astype(str).str.lower().str.contains(busca, na=False)
+            | df_base[COL_GES].astype(str).str.lower().str.contains(busca, na=False)
+            | df_base[COL_SITUACAO].astype(str).str.lower().str.contains(busca, na=False)
+        )
+        df_base = df_base[mask_base]
+
+        mask_det = (
+            df_det[COL_NORMA].astype(str).str.lower().str.contains(busca, na=False)
+            | df_det[COL_GES].astype(str).str.lower().str.contains(busca, na=False)
+            | df_det[COL_SITUACAO].astype(str).str.lower().str.contains(busca, na=False)
+        )
+        df_det = df_det[mask_det]
 
 st.sidebar.divider()
-if st.sidebar.button("🔄 Atualizar dados", use_container_width=True):
+if st.sidebar.button("🔄 Atualizar dados", width="stretch"):
     st.cache_data.clear()
     st.rerun()
-
-# Base filtrada (somente para as 3 seções solicitadas)
-df_det = df_f.copy()
-
 
 # =========================================================
 # HEADER (TOPO)
@@ -487,10 +442,10 @@ df_det = df_f.copy()
 h1, h2 = st.columns([0.12, 0.88], vertical_alignment="center")
 with h1:
     if os.path.exists(LOGO_PATH):
-        st.image(LOGO_PATH, use_container_width=True)
+        st.image(LOGO_PATH, width="stretch")
 with h2:
     st.markdown(
-        f"""
+        """
 <div class="header-wrap">
   <p class="h-title">Dashboard Executivo - Treinamentos SENAI</p>
   <p class="h-sub">Indicadores institucionais • Termômetro • Unidade Ouro • Ranking • Análises</p>
@@ -502,34 +457,21 @@ with h2:
 
 st.write("")
 
-
 # =========================================================
-# DIAGNÓSTICO (ANTES DOS FILTROS) — BASE INSTITUCIONAL
+# DIAGNÓSTICO (ANTES DOS FILTROS) — INSTITUCIONAL
 # =========================================================
 with st.expander("🔎 Diagnóstico rápido da SITUAÇÃO (antes dos filtros)", expanded=True):
-    if COL_SITUACAO:
-        diag = df_exec[COL_SITUACAO].value_counts(dropna=False).reset_index()
-        diag.columns = ["SITUAÇÃO", "count"]
-        st.dataframe(diag, use_container_width=True, hide_index=True)
-    else:
-        st.warning("Coluna SITUAÇÃO não encontrada.")
-
+    diag = df_exec[COL_SITUACAO].value_counts(dropna=False).reset_index()
+    diag.columns = ["SITUAÇÃO", "count"]
+    st.dataframe(diag, width="stretch", hide_index=True)
 
 # =========================================================
 # KPIs (INSTITUCIONAIS) — SEM FILTROS
 # =========================================================
-total_exec_registros = len(df_exec)
-
-total_colaboradores_exec = (
-    df_exec[COL_CHAVE_COLAB].dropna().astype(str).nunique()
-    if COL_CHAVE_COLAB
-    else 0
-)
-
-vigente_exec = len(df_exec[df_exec[COL_SITUACAO] == "VIGENTE"]) if COL_SITUACAO else 0
-vencido_exec = len(df_exec[df_exec[COL_SITUACAO] == "VENCIDO"]) if COL_SITUACAO else 0
-
-total_status_exec = (vigente_exec + vencido_exec) if (vigente_exec + vencido_exec) > 0 else total_exec_registros
+total_colaboradores_exec = df_exec[COL_CHAVE_COLAB].dropna().astype(str).nunique()
+vigente_exec = int((df_exec[COL_SITUACAO] == "VIGENTE").sum())
+vencido_exec = int((df_exec[COL_SITUACAO] == "VENCIDO").sum())
+total_status_exec = vigente_exec + vencido_exec
 
 pct_vigente_exec = (vigente_exec / total_status_exec) if total_status_exec else 0.0
 pct_vencido_exec = (vencido_exec / total_status_exec) if total_status_exec else 0.0
@@ -561,12 +503,10 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
-
 st.write("")
 
-
 # =========================================================
-# TERMÔMETRO — INSTITUCIONAL (SEM FILTROS)
+# TERMÔMETRO — INSTITUCIONAL
 # =========================================================
 st.markdown(
     f"""
@@ -593,12 +533,10 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
-
 st.write("")
 
-
 # =========================================================
-# UNIDADE OURO — TODO PERÍODO (SEM FILTROS)
+# UNIDADE OURO + TOP 5 (SEM FILTROS)
 # =========================================================
 st.markdown(
     """
@@ -612,39 +550,26 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-ouro_info = None
-if COL_UNIDADE and COL_CHAVE_COLAB and COL_SITUACAO and not df_exec.empty:
-    base = df_exec.copy()
+grp = df_exec.groupby(COL_UNIDADE).agg(
+    EFETIVO=(COL_CHAVE_COLAB, lambda s: s.dropna().astype(str).nunique()),
+    VIGENTE=(COL_SITUACAO, lambda s: (s == "VIGENTE").sum()),
+    VENCIDO=(COL_SITUACAO, lambda s: (s == "VENCIDO").sum()),
+).reset_index()
 
-    agg = base.groupby(COL_UNIDADE).agg(
-        EFETIVO=(COL_CHAVE_COLAB, lambda s: s.dropna().astype(str).nunique()),
-        VIGENTE=(COL_SITUACAO, lambda s: (s == "VIGENTE").sum()),
-        VENCIDO=(COL_SITUACAO, lambda s: (s == "VENCIDO").sum()),
-    ).reset_index()
+grp["TOTAL_TREIN"] = (grp["VIGENTE"] + grp["VENCIDO"]).astype(int)
+grp = grp[grp["TOTAL_TREIN"] > 0].copy()
+grp["% ATINGIDA"] = (grp["VIGENTE"] / grp["TOTAL_TREIN"]).fillna(0) * 100
+grp = grp.sort_values(["% ATINGIDA", "VIGENTE", "EFETIVO"], ascending=[False, False, False])
 
-    agg["TOTAL_TREIN"] = (agg["VIGENTE"] + agg["VENCIDO"]).astype(int)
-    agg = agg[agg["TOTAL_TREIN"] > 0].copy()
-
-    agg["% ATINGIDA"] = (agg["VIGENTE"] / agg["TOTAL_TREIN"]).fillna(0) * 100
-    agg = agg.sort_values(["% ATINGIDA", "VIGENTE", "EFETIVO"], ascending=[False, False, False])
-    if not agg.empty:
-        ouro_info = agg.iloc[0].to_dict()
-
-if ouro_info:
-    unidade_ouro = ouro_info.get(COL_UNIDADE, "—")
-    efetivo_ouro = ouro_info.get("EFETIVO", 0)
-    vigente_ouro = ouro_info.get("VIGENTE", 0)
-    vencido_ouro = ouro_info.get("VENCIDO", 0)
-    total_ouro = ouro_info.get("TOTAL_TREIN", 0)
-    pct_ouro = ouro_info.get("% ATINGIDA", 0.0)
-
+if not grp.empty:
+    ouro = grp.iloc[0]
     st.markdown(
         f"""
 <div class="kpi-grid" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
-  <div class="kpi"><h4>Unidade</h4><div class="v">{unidade_ouro}</div><div class="hint">Todo período</div></div>
-  <div class="kpi"><h4>Efetivo</h4><div class="v">{fmt_int(efetivo_ouro)}</div><div class="hint">Colaboradores únicos</div></div>
-  <div class="kpi"><h4>VIGENTE / VENCIDO</h4><div class="v"><span style="color:{COR_VIGENTE};">{fmt_int(vigente_ouro)}</span> / <span style="color:{COR_VENCIDO};">{fmt_int(vencido_ouro)}</span></div><div class="hint">Total: {fmt_int(total_ouro)}</div></div>
-  <div class="kpi"><h4>% Atingida</h4><div class="v">{str(round(pct_ouro,2)).replace(".",",")}%</div><div class="hint">VIGENTE/TOTAL</div></div>
+  <div class="kpi"><h4>Unidade</h4><div class="v">{ouro[COL_UNIDADE]}</div><div class="hint">Todo período</div></div>
+  <div class="kpi"><h4>Efetivo</h4><div class="v">{fmt_int(ouro['EFETIVO'])}</div><div class="hint">Colaboradores únicos</div></div>
+  <div class="kpi"><h4>VIGENTE / VENCIDO</h4><div class="v"><span style="color:{COR_VIGENTE};">{fmt_int(ouro['VIGENTE'])}</span> / <span style="color:{COR_VENCIDO};">{fmt_int(ouro['VENCIDO'])}</span></div><div class="hint">Total: {fmt_int(ouro['TOTAL_TREIN'])}</div></div>
+  <div class="kpi"><h4>% Atingida</h4><div class="v">{str(round(float(ouro['% ATINGIDA']),2)).replace('.',',')}%</div><div class="hint">VIGENTE/TOTAL</div></div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -654,10 +579,6 @@ else:
 
 st.write("")
 
-
-# =========================================================
-# RANKING TOP 5 — POR % ATINGIDA (SEM FILTROS)
-# =========================================================
 st.markdown(
     """
 <div class="section">
@@ -670,43 +591,20 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if COL_UNIDADE and COL_CHAVE_COLAB and COL_SITUACAO:
-    base = df_exec.copy()
-
-    grp_u = base.groupby(COL_UNIDADE).agg(
-        EFETIVO=(COL_CHAVE_COLAB, lambda s: s.dropna().astype(str).nunique()),
-        VIGENTE=(COL_SITUACAO, lambda s: (s == "VIGENTE").sum()),
-        VENCIDO=(COL_SITUACAO, lambda s: (s == "VENCIDO").sum()),
-    ).reset_index()
-
-    grp_u["TOTAL_TREIN"] = (grp_u["VIGENTE"] + grp_u["VENCIDO"]).astype(int)
-    grp_u = grp_u[grp_u["TOTAL_TREIN"] > 0].copy()
-
-    grp_u["% ATINGIDA"] = (grp_u["VIGENTE"] / grp_u["TOTAL_TREIN"]).fillna(0) * 100
-
-    grp_u = grp_u.sort_values(
-        ["% ATINGIDA", "VIGENTE", "TOTAL_TREIN", "EFETIVO"],
-        ascending=[False, False, False, False],
-    )
-
-    top5 = grp_u.head(5).reset_index(drop=True)
-    top5["POSIÇÃO"] = top5.index + 1
-    top5["MEDALHA"] = top5["POSIÇÃO"].map({1: "🥇", 2: "🥈", 3: "🥉"}).fillna("⭐")
-    top5 = top5.rename(columns={COL_UNIDADE: "UNIDADE"})
-
-    st.dataframe(
-        top5[["POSIÇÃO", "MEDALHA", "UNIDADE", "EFETIVO", "TOTAL_TREIN", "VIGENTE", "VENCIDO", "% ATINGIDA"]],
-        use_container_width=True,
-        hide_index=True,
-    )
-else:
-    st.info("Não foi possível gerar ranking (verifique colunas UNIDADE + NOME/MATRICULA + SITUAÇÃO).")
-
+top5 = grp.head(5).reset_index(drop=True).copy()
+top5["POSIÇÃO"] = top5.index + 1
+top5["MEDALHA"] = top5["POSIÇÃO"].map({1: "🥇", 2: "🥈", 3: "🥉"}).fillna("⭐")
+top5 = top5.rename(columns={COL_UNIDADE: "UNIDADE"})
+st.dataframe(
+    top5[["POSIÇÃO", "MEDALHA", "UNIDADE", "EFETIVO", "TOTAL_TREIN", "VIGENTE", "VENCIDO", "% ATINGIDA"]],
+    width="stretch",
+    hide_index=True,
+)
 st.write("")
 
-
 # =========================================================
-# VIGENTE/VENCIDO POR NR — COM FILTROS (df_det)
+# ✅ VIGENTE x VENCIDO por NR — COM FILTROS (SEM filtro de SITUAÇÃO) — SEM ZERAR
+# (crosstab é mais robusto)
 # =========================================================
 st.markdown(
     """
@@ -720,35 +618,34 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if COL_NORMA and COL_SITUACAO and not df_det.empty:
-    nr = df_det.groupby(COL_NORMA).agg(
-        VIGENTE=(COL_SITUACAO, lambda s: (s == "VIGENTE").sum()),
-        VENCIDO=(COL_SITUACAO, lambda s: (s == "VENCIDO").sum()),
-    ).reset_index()
+if df_base.empty:
+    st.warning("Sem dados após filtros. Ajuste os filtros do menu lateral.")
+else:
+    tab = pd.crosstab(df_base[CHAVE_TREIN_NR], df_base[COL_SITUACAO]).reset_index().rename(columns={CHAVE_TREIN_NR: "TREINAMENTO/NR"})
 
-    nr["TOTAL"] = (nr["VIGENTE"] + nr["VENCIDO"]).astype(int)
-    nr = nr[nr["TOTAL"] > 0].copy()
+    # garante colunas (caso uma situação não apareça na base filtrada)
+    if "VIGENTE" not in tab.columns:
+        tab["VIGENTE"] = 0
+    if "VENCIDO" not in tab.columns:
+        tab["VENCIDO"] = 0
 
-    nr["% VIGENTE"] = (nr["VIGENTE"] / nr["TOTAL"]).fillna(0) * 100
-    nr["% VENCIDO"] = (nr["VENCIDO"] / nr["TOTAL"]).fillna(0) * 100
+    tab["TOTAL"] = (tab["VIGENTE"] + tab["VENCIDO"]).astype(int)
+    tab = tab[tab["TOTAL"] > 0].copy()
+    tab["% VIGENTE"] = (tab["VIGENTE"] / tab["TOTAL"]).fillna(0) * 100
+    tab["% VENCIDO"] = (tab["VENCIDO"] / tab["TOTAL"]).fillna(0) * 100
 
-    nr = nr.sort_values(["% VENCIDO", "VENCIDO"], ascending=[False, False]).rename(columns={COL_NORMA: "NORMA"})
+    tab = tab.sort_values(["% VENCIDO", "VENCIDO"], ascending=[False, False])
 
     st.dataframe(
-        nr[["NORMA", "TOTAL", "VIGENTE", "VENCIDO", "% VIGENTE", "% VENCIDO"]],
-        use_container_width=True,
+        tab[["TREINAMENTO/NR", "TOTAL", "VIGENTE", "VENCIDO", "% VIGENTE", "% VENCIDO"]],
+        width="stretch",
         hide_index=True,
         height=360,
     )
-else:
-    st.info("Não foi possível montar a visão por NR com os filtros (verifique colunas NORMA e SITUAÇÃO).")
 
 st.write("")
-
-
 # =========================================================
 # REGISTROS POR ANO — COM FILTROS (df_det)
-# (com valores em cima das barras)
 # =========================================================
 st.markdown(
     """
@@ -762,41 +659,33 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if COL_ANO and not df_det.empty and df_det[COL_ANO].notna().any():
-    anos_series = pd.to_numeric(df_det[COL_ANO], errors="coerce").dropna().astype(int)
-    if not anos_series.empty:
-        cont_ano = anos_series.value_counts().sort_index()
+anos_series = pd.to_numeric(df_det[COL_ANO], errors="coerce").dropna().astype(int) if not df_det.empty else pd.Series([], dtype=int)
 
-        fig = plt.figure(figsize=(10, 3.8))
-        ax = plt.gca()
-
-        bars = ax.bar(cont_ano.index.astype(str), cont_ano.values)
-
-        ax.set_xlabel("Ano")
-        ax.set_ylabel("Quantidade de registros")
-
-        for b in bars:
-            h = b.get_height()
-            ax.annotate(
-                f"{int(h)}",
-                xy=(b.get_x() + b.get_width() / 2, h),
-                xytext=(0, 4),
-                textcoords="offset points",
-                ha="center",
-                va="bottom",
-                fontsize=10,
-                fontweight="bold",
-            )
-
-        plt.tight_layout()
-        st.pyplot(fig, clear_figure=True)
-    else:
-        st.info("Não foi possível identificar anos válidos com os filtros.")
+if not anos_series.empty:
+    cont_ano = anos_series.value_counts().sort_index()
+    fig = plt.figure(figsize=(10, 3.8))
+    ax = plt.gca()
+    bars = ax.bar(cont_ano.index.astype(str), cont_ano.values)
+    ax.set_xlabel("Ano")
+    ax.set_ylabel("Quantidade de registros")
+    for b in bars:
+        h = b.get_height()
+        ax.annotate(
+            f"{int(h)}",
+            xy=(b.get_x() + b.get_width() / 2, h),
+            xytext=(0, 4),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            fontweight="bold",
+        )
+    plt.tight_layout()
+    st.pyplot(fig, clear_figure=True)
 else:
-    st.info("Coluna ANO não encontrada (nem derivada pela DATA) ou não há dados após filtros.")
+    st.info("Sem anos válidos após filtros.")
 
 st.write("")
-
 
 # =========================================================
 # BASE DETALHADA + EXPORTAÇÃO — COM FILTROS (df_det)
@@ -813,26 +702,17 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.dataframe(df_det, use_container_width=True, height=420)
+st.dataframe(df_det, width="stretch", height=420)
 
 st.download_button(
     "⬇️ Baixar relatório filtrado (Excel)",
     data=gerar_excel_bytes(df_det),
     file_name="Relatorio_Treinamentos_Filtrado.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    use_container_width=True,
+    width="stretch",
 )
 
 with st.expander("🔧 Diagnóstico (colunas detectadas)", expanded=False):
-    st.write("Colunas encontradas:", list(df.columns))
-    st.write({
-        "UNIDADE": COL_UNIDADE,
-        "NOME": COL_NOME,
-        "MATRICULA": COL_MATRICULA,
-        "CHAVE_COLAB": COL_CHAVE_COLAB,
-        "GES": COL_GES,
-        "NORMA": COL_NORMA,
-        "SITUAÇÃO": COL_SITUACAO,
-        "ANO": COL_ANO,
-        "DATA": COL_DATA,
-    })
+    st.write("Colunas detectadas:", list(df.columns))
+    st.write("Linhas após filtros:", len(df_det))
+    st.write("Amostra SITUAÇÃO (pós-normalização):", df[COL_SITUACAO].value_counts().to_dict())
